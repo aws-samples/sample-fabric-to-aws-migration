@@ -20,7 +20,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 
-
 # ---- Enums -----------------------------------------------------------------
 
 class EntityType(Enum):
@@ -96,7 +95,7 @@ class ColumnSchema:
     name: str
     field_type: str   # T-SQL / Delta type name
     nullable: bool
-    fields: list["ColumnSchema"] = field(default_factory=list)  # nested (rare in Fabric WH)
+    fields: list[ColumnSchema] = field(default_factory=list)  # nested (rare in Fabric WH)
 
 
 @dataclass
