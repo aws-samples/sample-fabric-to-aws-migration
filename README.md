@@ -28,26 +28,49 @@ migration commitment.
 
 ## Status
 
-Scaffolding in progress. See `docs/PORTING.md` for the module-by-module plan
-ported from `aws-samples/sample-bigquery-to-aws-migration`, the verified Fabric
-metadata surfaces, the T-SQL -> Redshift/Athena dialect map, and the open
-VERIFY items blocking publish.
+Alpha MVP — a working end-to-end assessment pipeline:
 
-## Prerequisites (planned)
+- **Scanner** reads Fabric metadata over the SQL analytics endpoint (TDS /
+  Entra token auth; no secret written to disk).
+- **Two-axis scoring** — Migration Effort (inverted toward AUTO for the
+  open-format source) and Query Complexity (T-SQL constructs).
+- **Iceberg converter** maps T-SQL/Delta types and flags lossy casts.
+- **Athena engine** — rewrite guidance + best-effort `sqlglot` translation and a
+  directional cost model.
+- **Reports** — paired HTML + JSON, plus a checksummed collect-then-report bundle.
 
-- Python 3.9+
-- ODBC Driver 18 for SQL Server (the Fabric SQL analytics endpoint speaks TDS)
-- A Microsoft Entra identity with read access to the Fabric Warehouse, plus
-  Contributor on the workspace for query-insights workload data (higher
-  confidence; schema-only scan works without it)
+Redshift as a second query engine and a live AWS Price List lookup are planned
+follow-ups. See `docs/PORTING.md` for the module map and open VERIFY items.
 
-## Two ways to run (planned, mirroring the reference)
+## Install
 
-1. **Collect, then report** — run the lightweight collector where your Fabric
-   credentials live; it writes a checksummed JSON bundle; your AWS team
-   generates the report from it, fully offline.
-2. **Full assessment** — scan and report in one step in the environment with
-   Fabric access.
+```bash
+pip install -e .          # add .[dev] for the test + lint tooling
+```
+
+The scanner needs the ODBC Driver 18 for SQL Server and `pyodbc` /
+`azure-identity` at run time; the offline `report --bundle` path does not.
+
+## Usage
+
+```bash
+# Full assessment against a live Fabric Warehouse
+fabric-assess assess \
+  --server <workspace>.datawarehouse.fabric.microsoft.com \
+  --warehouse SalesWH --out reports --format both
+
+# Collect where your Fabric credentials live, report anywhere (offline)
+fabric-collect --server <...> --warehouse SalesWH --out collected
+fabric-assess report --bundle collected/bundle --out reports
+```
+
+## Develop
+
+```bash
+pytest                       # unit + integration + property tests
+ruff check src tests         # lint
+bandit -c bandit.yml -r src  # security scan
+```
 
 ## License
 
