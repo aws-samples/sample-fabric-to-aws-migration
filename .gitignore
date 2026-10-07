@@ -1,0 +1,20 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+.hypothesis/
+.pytest_cache/
+.coverage
+htmlcov/
+reports/
+.DS_Store
+.fabric-assess-cache.db
+# Never commit credentials or Entra tokens
+*.token
+*-sp.json
+*service-principal*.json
+*.env
+.azure-*.env

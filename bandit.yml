@@ -1,0 +1,16 @@
+# Bandit configuration for this repository.
+#
+# Why each rule is skipped:
+#   B101 - pytest uses the assert statement as its assertion mechanism;
+#          every B101 hit in this repo is inside tests/ (0 in src/).
+#          Production code raises typed errors, not asserts.
+#   B608 - flags f-string SQL. fabric-assess is a client-side, read-only
+#          assessment tool: the only values interpolated into a query are the
+#          user's own Fabric schema/table identifiers, and every query runs
+#          with the user's own Entra credentials against the user's own
+#          warehouse - there is no privilege boundary to cross. The remaining
+#          hits build SQL *text* for the generated migration report; that SQL
+#          is report output and is never executed by this tool.
+skips:
+  - B101
+  - B608
