@@ -128,9 +128,11 @@ class FabricScanner:
                     ) from exc
                 credential = DefaultAzureCredential()
             token = credential.get_token(_FABRIC_SQL_SCOPE).token
-        # msodbcsql wants the UTF-16-LE token prefixed with its 4-byte length.
+        # msodbcsql wants the UTF-16-LE token prefixed with its 4-byte length
+        # (little-endian unsigned int), per Microsoft's documented idiom for
+        # SQL_COPT_SS_ACCESS_TOKEN.
         token_bytes = token.encode("utf-16-le")
-        return struct.pack("<i", len(token_bytes)) + token_bytes
+        return struct.pack("<I", len(token_bytes)) + token_bytes
 
     def _connect(self):
         if self._conn is not None:
