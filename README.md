@@ -75,3 +75,22 @@ bandit -c bandit.yml -r src  # security scan
 ## License
 
 MIT-0 (aws-samples convention).
+
+## Testing against a local SQL Server (no Fabric tenant needed)
+
+The Fabric SQL analytics endpoint speaks the TDS protocol, so the collector can be
+validated against a local Microsoft SQL Server using SQL authentication:
+
+```bash
+docker run -e "ACCEPT_EULA=Y" -e "MSSQL_SA_PASSWORD=<password>" \
+  -p 1433:1433 --name fabric-test -d mcr.microsoft.com/mssql/server:2022-latest
+# seed a database (see tests/fixtures/seed.sql for an example schema)
+fabric-assess assess --server 127.0.0.1 --warehouse <db> \
+  --username sa --password '<password>' --port 1433 --trust-server-certificate \
+  --out reports --format both
+```
+
+The `--username/--password/--trust-server-certificate` flags are for local testing
+only. A real Fabric warehouse uses Microsoft Entra token authentication (the default
+path), not SQL auth. On macOS the ODBC Driver 18 needs OpenSSL discoverable, e.g.
+`export DYLD_LIBRARY_PATH="$(brew --prefix openssl@3)/lib:$DYLD_LIBRARY_PATH"`.

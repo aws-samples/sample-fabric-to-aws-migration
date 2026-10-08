@@ -76,6 +76,11 @@ class FabricScanner:
         *,
         access_token: str | None = None,
         credential=None,
+        username: str | None = None,
+        password: str | None = None,
+        encrypt: bool = True,
+        trust_server_certificate: bool = False,
+        port: int = 1433,
         odbc_driver: str = "ODBC Driver 18 for SQL Server",
     ) -> None:
         """
@@ -85,11 +90,21 @@ class FabricScanner:
         access_token / credential: optional pre-obtained Entra token or an
                   azure-identity credential; if neither is given,
                   DefaultAzureCredential is used at connect time.
+        username / password: optional SQL-auth credentials. When supplied, the
+                  scanner uses SQL authentication instead of an Entra token —
+                  useful for testing against a local SQL Server (which speaks
+                  the same TDS protocol as the Fabric endpoint). Never used for
+                  a real Fabric warehouse, which is Entra-only.
         """
         self._server = server
         self._database = database
         self._access_token = access_token
         self._credential = credential
+        self._username = username
+        self._password = password
+        self._encrypt = encrypt
+        self._trust_server_certificate = trust_server_certificate
+        self._port = port
         self._odbc_driver = odbc_driver
         self._conn = None
         self.failures: list[FailureRecord] = []
@@ -128,19 +143,27 @@ class FabricScanner:
                 "the Fabric SQL analytics endpoint."
             ) from exc
 
-        conn_str = (
+        encrypt = "yes" if self._encrypt else "no"
+        trust = "yes" if self._trust_server_certificate else "no"
+        base = (
             f"Driver={{{self._odbc_driver}}};"
-            f"Server={self._server},1433;"
+            f"Server={self._server},{self._port};"
             f"Database={self._database};"
-            "Encrypt=yes;TrustServerCertificate=no;"
+            f"Encrypt={encrypt};TrustServerCertificate={trust};"
         )
         try:
-            self._conn = pyodbc.connect(
-                conn_str,
-                attrs_before={_SQL_COPT_SS_ACCESS_TOKEN: self._token_bytes()},
-            )
+            if self._username is not None:
+                # SQL authentication (local SQL Server / testing path).
+                conn_str = base + f"UID={self._username};PWD={self._password};"
+                self._conn = pyodbc.connect(conn_str)
+            else:
+                # Microsoft Entra token authentication (Fabric path).
+                self._conn = pyodbc.connect(
+                    base,
+                    attrs_before={_SQL_COPT_SS_ACCESS_TOKEN: self._token_bytes()},
+                )
         except Exception as exc:
-            raise ScannerError(f"failed to connect to Fabric endpoint: {exc}") from exc
+            raise ScannerError(f"failed to connect to SQL endpoint: {exc}") from exc
         return self._conn
 
     # ------------------------------------------------------------------

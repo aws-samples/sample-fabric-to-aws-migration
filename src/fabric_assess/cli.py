@@ -45,11 +45,25 @@ def main() -> None:  # pragma: no cover - thin dispatch
 @click.option("--fabric-monthly", type=float, default=0.0,
               help="Your Fabric F-SKU monthly spend (USD) for a cost delta; omit if unknown.")
 @click.option("--aws-region", default="us-east-1", show_default=True)
-def assess_cmd(server, warehouse, out_dir, fmt, fabric_monthly, aws_region) -> None:
+@click.option("--username", default=None, help="SQL-auth username (testing against a local "
+              "SQL Server; omit for a real Fabric warehouse, which uses Entra).")
+@click.option("--password", default=None, help="SQL-auth password (testing only).")
+@click.option("--port", default=1433, show_default=True, type=int)
+@click.option("--trust-server-certificate", is_flag=True, default=False,
+              help="Trust a self-signed server certificate (local SQL Server testing only).")
+def assess_cmd(server, warehouse, out_dir, fmt, fabric_monthly, aws_region,
+               username, password, port, trust_server_certificate) -> None:
     # Imported here so `report --bundle` works without the native ODBC driver.
     from fabric_assess.core.scanner import FabricScanner, ScannerError
 
-    scanner = FabricScanner(server=server, database=warehouse)
+    scanner = FabricScanner(
+        server=server,
+        database=warehouse,
+        username=username,
+        password=password,
+        port=port,
+        trust_server_certificate=trust_server_certificate,
+    )
     try:
         entities = list(scanner.scan())
     except ScannerError as exc:
