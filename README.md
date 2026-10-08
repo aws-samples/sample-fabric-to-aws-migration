@@ -1,4 +1,4 @@
-# fabric-assess
+# Assess a Microsoft Fabric warehouse for migration to an AWS lakehouse
 
 Assess migrating a **Microsoft Fabric** warehouse to an **AWS lakehouse** — data
 in **Amazon S3 Tables (Apache Iceberg)**, queried by **Amazon Redshift

@@ -3,7 +3,7 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "fabric-assess"
+name = "sample-fabric-to-aws-migration"
 version = "0.1.0"
 description = "Read-only Microsoft Fabric warehouse migration assessment CLI: profiles a Fabric Warehouse and assesses migrating it to an AWS lakehouse (S3 Tables / Apache Iceberg storage, Amazon Redshift Serverless or Amazon Athena query engine)."
 readme = "README.md"
