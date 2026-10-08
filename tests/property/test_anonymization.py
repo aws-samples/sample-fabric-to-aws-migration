@@ -28,7 +28,7 @@ _secret_body = st.text(
 def test_string_literal_never_survives(body):
     """A quoted literal value never appears verbatim in anonymized output."""
     secret = f"SEKRET_{body}_END"
-    sql = f"SELECT * FROM t WHERE token = '{secret}'"
+    sql = f"SELECT * FROM t WHERE token = '{secret}'"  # nosec B608 - test input for anonymize(); never executed
     out = _analyzer.anonymize(sql)
     assert secret not in out
     assert "'?'" in out
@@ -41,7 +41,7 @@ def test_string_literal_never_survives(body):
 def test_multiple_literals_all_stripped(user_body, pwd_body):
     user = f"USER_{user_body}_U"
     pwd = f"PWD_{pwd_body}_P"
-    sql = f"SELECT * FROM users WHERE name = '{user}' AND password = '{pwd}'"
+    sql = f"SELECT * FROM users WHERE name = '{user}' AND password = '{pwd}'"  # nosec B608 - test input for anonymize(); never executed
     out = _analyzer.anonymize(sql)
     assert user not in out
     assert pwd not in out
