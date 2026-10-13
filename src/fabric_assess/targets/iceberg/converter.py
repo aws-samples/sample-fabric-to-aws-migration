@@ -97,13 +97,18 @@ class IcebergConverter:
             null_sql = "" if col.nullable else " NOT NULL"
             lines.append(f"    {_quote_ident(col.name)} {iceberg_type}{null_sql}")
 
-        table_ident = _quote_ident(entity.full_name.replace(".", "_"))
+        # Amazon S3 Tables manage their own storage inside a table bucket, so the
+        # table is created in the s3tablescatalog namespace and Athena rejects a
+        # user-supplied LOCATION clause. Qualify the table into the catalog's
+        # namespace and omit LOCATION; the Iceberg table_type is still required.
+        table_name = _quote_ident(entity.full_name.replace(".", "_"))
+        table_ident = (
+            f'"s3tablescatalog/<your-table-bucket>"."<your-namespace>".{table_name}'
+        )
         ddl = (
             f"CREATE TABLE {table_ident} (\n"
             + ",\n".join(lines)
-            + "\n)\nLOCATION 's3://<your-bucket>/"
-            + entity.full_name.replace(".", "/")
-            + "/'\nTBLPROPERTIES ('table_type' = 'ICEBERG');"
+            + "\n)\nTBLPROPERTIES ('table_type' = 'ICEBERG');"
         )
 
         return ConversionResult(
