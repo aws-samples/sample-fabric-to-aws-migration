@@ -40,7 +40,7 @@ Alpha MVP — a working end-to-end assessment pipeline:
 - **Reports** — paired HTML + JSON, plus a checksummed collect-then-report bundle.
 
 Redshift as a second query engine and a live AWS Price List lookup are planned
-follow-ups. See `docs/PORTING.md` for the module map and open VERIFY items.
+follow-ups.
 
 ## Install
 

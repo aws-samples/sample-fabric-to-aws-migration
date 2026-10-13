@@ -83,8 +83,12 @@ class MigrationStrategy(str, Enum):
     Because OneLake data is already open Delta/Iceberg, moving it is not a
     proprietary export; it is a choice between querying in place and copying.
     """
-    IN_PLACE = "in_place"     # query OneLake Iceberg surface from AWS (VERIFY cross-cloud)
-    COPY_TO_S3 = "copy_to_s3"  # physically copy into Amazon S3 Tables
+    IN_PLACE = "in_place"     # query OneLake Iceberg surface from AWS. UNVERIFIED cross-cloud:
+                              # OneLake exposes an Iceberg REST catalog and AWS Glue supports IRC
+                              # federation, but OneLake is not a documented AWS federation source
+                              # and the auth models differ (Entra/ABFS vs IAM/Lake Formation/S3).
+                              # Not a default; validate against a live tenant before relying on it.
+    COPY_TO_S3 = "copy_to_s3"  # physically copy into Amazon S3 Tables (verified default)
 
 
 # ---- Scanned metadata ------------------------------------------------------
