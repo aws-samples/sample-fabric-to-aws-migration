@@ -19,7 +19,7 @@ account to run.
 
 ## The Fabric angle
 
-Unlike a BigQuery source, a Fabric Warehouse already stores its data as **open
+A Fabric Warehouse already stores its data as **open
 Delta/Parquet in OneLake**, which OneLake can expose **as Apache Iceberg
 automatically**. So the data-movement problem is small — most tables score
 **AUTO** on Migration Effort — and the real work is the **T-SQL rewrite** to
@@ -40,7 +40,7 @@ Alpha MVP — a working end-to-end assessment pipeline:
 - **Reports** — paired HTML + JSON, plus a checksummed collect-then-report bundle.
 
 Redshift as a second query engine and a live AWS Price List lookup are planned
-follow-ups. See `docs/PORTING.md` for the module map and open VERIFY items.
+follow-ups.
 
 ## Install
 

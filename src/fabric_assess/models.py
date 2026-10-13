@@ -1,16 +1,15 @@
 """Shared data models for fabric-assess — normative dataclasses and enums.
 
-Ported from aws-samples/sample-bigquery-to-aws-migration (bq_assess.models),
-re-flavored for a Microsoft Fabric Warehouse source. The two-axis assessment
-contract is unchanged:
+Models a Microsoft Fabric Warehouse source. The two-axis assessment
+contract:
 
 - Migration Effort (AUTO / ASSISTED / MANUAL) — moving a table into the Storage
   Target (Amazon S3 Tables / Apache Iceberg). Tables only.
 - Query Complexity (PORTABLE / ADAPT / REWRITE) — keeping the existing T-SQL
   running on the Query Engine (Amazon Redshift Serverless or Amazon Athena).
 
-Key inversion vs the BigQuery reference: Fabric already stores data as open
-Delta/Parquet in OneLake (auto-virtualizable as Iceberg), so most tables trend
+Fabric already stores data as open Delta/Parquet in OneLake
+(auto-virtualizable as Iceberg), so most tables trend
 toward AUTO on the Effort axis and the real work is the T-SQL rewrite.
 """
 
@@ -84,8 +83,12 @@ class MigrationStrategy(str, Enum):
     Because OneLake data is already open Delta/Iceberg, moving it is not a
     proprietary export; it is a choice between querying in place and copying.
     """
-    IN_PLACE = "in_place"     # query OneLake Iceberg surface from AWS (VERIFY cross-cloud)
-    COPY_TO_S3 = "copy_to_s3"  # physically copy into Amazon S3 Tables
+    IN_PLACE = "in_place"     # query OneLake Iceberg surface from AWS. UNVERIFIED cross-cloud:
+                              # OneLake exposes an Iceberg REST catalog and AWS Glue supports IRC
+                              # federation, but OneLake is not a documented AWS federation source
+                              # and the auth models differ (Entra/ABFS vs IAM/Lake Formation/S3).
+                              # Not a default; validate against a live tenant before relying on it.
+    COPY_TO_S3 = "copy_to_s3"  # physically copy into Amazon S3 Tables (verified default)
 
 
 # ---- Scanned metadata ------------------------------------------------------
