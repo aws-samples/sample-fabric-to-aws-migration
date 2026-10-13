@@ -58,13 +58,13 @@ class EffortScorer:
 
         # Data-volume tier. For an open-format source this is a secondary signal:
         # it only drives the in-place-vs-copy strategy and staging effort, not a
-        # re-encode. Hence higher thresholds and lower weight than a BQ source.
+        # re-encode. Hence higher thresholds and lower weight for an open-format source.
         if size_bytes >= _HUGE_THRESHOLD:
             points += 1
             flags.append("data_volume_huge")
             reasons.append(
                 f"huge volume ({fmt_size(bytes_to_gb(size_bytes))}) — "
-                f"favor in-place query or partitioned copy (+1)"
+                f"partitioned copy to S3 Tables (+1)"
             )
         elif size_bytes >= _LARGE_THRESHOLD:
             flags.append("data_volume_large")
@@ -109,14 +109,11 @@ class EffortScorer:
         return False
 
     def _strategy_for(self, size_bytes: int, n_lossy: int) -> MigrationStrategy:
-        """Recommend in-place query vs physical copy.
+        """Recommend physical copy vs in-place query.
 
-        A clean, large table is the strongest candidate to query in place from
-        the OneLake Iceberg surface (no copy, no egress to re-encode). A table
-        needing lossy type remediation must be copied so the cast is materialized.
+        Copy to Amazon S3 Tables is the default: it is the verified path and
+        yields a self-contained lakehouse. In-place query of the OneLake Iceberg
+        surface is offered only as an option a user opts into after confirming
+        cross-cloud read works for their setup.
         """
-        if n_lossy > 0:
-            return MigrationStrategy.COPY_TO_S3
-        if size_bytes >= _LARGE_THRESHOLD:
-            return MigrationStrategy.IN_PLACE
         return MigrationStrategy.COPY_TO_S3

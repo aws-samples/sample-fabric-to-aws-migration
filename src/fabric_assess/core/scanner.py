@@ -5,7 +5,7 @@ definitions* only through the Fabric Warehouse SQL analytics endpoint; never
 executes SELECT against data rows. Resilient: per-entity failures are recorded
 and skipped rather than aborting the scan.
 
-The frozen seam other modules build on mirrors the reference BigQueryScanner:
+The frozen seam other modules build on is
 ``scan() -> Iterator[EntityMetadata]`` plus ``self.failures: list[FailureRecord]``.
 
 Connectivity: the SQL analytics endpoint speaks the TDS protocol (SQL Server

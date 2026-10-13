@@ -1,16 +1,15 @@
 """Shared data models for fabric-assess — normative dataclasses and enums.
 
-Ported from aws-samples/sample-bigquery-to-aws-migration (bq_assess.models),
-re-flavored for a Microsoft Fabric Warehouse source. The two-axis assessment
-contract is unchanged:
+Models a Microsoft Fabric Warehouse source. The two-axis assessment
+contract:
 
 - Migration Effort (AUTO / ASSISTED / MANUAL) — moving a table into the Storage
   Target (Amazon S3 Tables / Apache Iceberg). Tables only.
 - Query Complexity (PORTABLE / ADAPT / REWRITE) — keeping the existing T-SQL
   running on the Query Engine (Amazon Redshift Serverless or Amazon Athena).
 
-Key inversion vs the BigQuery reference: Fabric already stores data as open
-Delta/Parquet in OneLake (auto-virtualizable as Iceberg), so most tables trend
+Fabric already stores data as open Delta/Parquet in OneLake
+(auto-virtualizable as Iceberg), so most tables trend
 toward AUTO on the Effort axis and the real work is the T-SQL rewrite.
 """
 

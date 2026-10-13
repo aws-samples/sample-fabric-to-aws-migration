@@ -51,13 +51,13 @@ class TestEffortScorer:
         assert res.category == EffortCategory.MANUAL
         assert res.strategy == MigrationStrategy.COPY_TO_S3
 
-    def test_large_clean_table_recommends_in_place(self, table_entity):
-        # 200 GB, no lossy casts -> in-place query is the recommended strategy.
+    def test_large_clean_table_recommends_copy(self, table_entity):
+        # 200 GB, no lossy casts -> copy to S3 Tables is the default strategy.
         conv = ConversionResult(ddl="CREATE TABLE ...", lossy_casts=[], warnings=[], success=True)
         # drop the lossy/sync columns for this strategy check
         table_entity.columns = []
         res = EffortScorer().score(table_entity, conv)
-        assert res.strategy == MigrationStrategy.IN_PLACE
+        assert res.strategy == MigrationStrategy.COPY_TO_S3
 
 
 class TestComplexityScorer:
