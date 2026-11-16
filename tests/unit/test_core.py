@@ -33,6 +33,14 @@ class TestSQLSurface:
         }
         assert {"TOP", "STRING_AGG", "OPENJSON", "CROSS_APPLY"} <= classes
 
+    def test_detect_top_after_anonymize(self):
+        # The surface is anonymized before detection, so TOP n becomes TOP ?.
+        a = SQLSurfaceAnalyzer()
+        sql = "CREATE VIEW v AS SELECT TOP 100 c.name FROM dbo.customers c"
+        assert "TOP ?" in a.anonymize(sql)
+        classes = {c.construct_class for c in a.detect(a.anonymize(sql))}
+        assert "TOP" in classes
+
     def test_detect_merge_and_proc(self):
         a = SQLSurfaceAnalyzer()
         classes = {c.construct_class for c in a.detect("CREATE PROC p AS MERGE INTO t USING s ON t.id=s.id")}

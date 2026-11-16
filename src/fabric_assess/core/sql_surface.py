@@ -77,7 +77,8 @@ _MERGE_RE = re.compile(r"\bMERGE\s+(?:INTO\s+)?\w", re.IGNORECASE)
 _PIVOT_RE = re.compile(r"\b(PIVOT|UNPIVOT)\b", re.IGNORECASE)
 
 # TOP n — maps to LIMIT n; TOP ... WITH TIES / percent needs manual review.
-_TOP_RE = re.compile(r"\bSELECT\s+(?:DISTINCT\s+)?TOP\s*\(?\s*\d+", re.IGNORECASE)
+# The row count may already be anonymized to "?" (see anonymize), so accept either.
+_TOP_RE = re.compile(r"\bSELECT\s+(?:DISTINCT\s+)?TOP\s*\(?\s*(?:\d+|\?)", re.IGNORECASE)
 
 # JavaScript / external-language markers are not valid T-SQL; CLR assemblies are.
 _CLR_RE = re.compile(r"\b(EXTERNAL\s+NAME|CREATE\s+ASSEMBLY)\b", re.IGNORECASE)
