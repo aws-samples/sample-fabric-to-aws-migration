@@ -1,0 +1,106 @@
+# Assess a Microsoft Fabric warehouse for migration to an AWS lakehouse
+
+Assess migrating a **Microsoft Fabric** warehouse to an **AWS lakehouse** — data
+in **Amazon S3 Tables (Apache Iceberg)**, queried by **Amazon Redshift
+Serverless** or **Amazon Athena**. The `fabric-assess` CLI reads Fabric
+metadata (read-only, never table data) through the warehouse's SQL analytics
+endpoint, scores every table on two independent axes — **Migration Effort**
+(moving the data) and **Query Complexity** (keeping the T-SQL running) — and
+generates Amazon Athena DDL for Amazon S3 Tables, a per-table load strategy,
+Athena rewrite guidance, and a directional Fabric-vs-AWS cost comparison as
+HTML + JSON reports.
+
+It **assesses; it does not execute the migration** — and it needs no AWS
+account to run.
+
+> **Alpha / companion sample** for the AWS Multicloud blog post *"Assess a
+> Microsoft Fabric warehouse for migration to an AWS lakehouse"*. Cost figures
+> are directional estimates, labelled by confidence. Review assessments with
+> your AWS specialist team before they inform a decision.
+
+## The Fabric angle
+
+A Fabric Warehouse already stores its data as **open
+Delta/Parquet in OneLake**, which OneLake can expose **as Apache Iceberg
+automatically**. So the data-movement problem is small — most tables score
+**AUTO** on Migration Effort — and the real work is the **T-SQL rewrite** to
+the AWS engine. This tool makes that split explicit and scored before any
+migration commitment.
+
+## Status
+
+Alpha MVP — a working end-to-end assessment pipeline:
+
+- **Scanner** reads Fabric metadata over the SQL analytics endpoint (TDS /
+  Entra token auth; no secret written to disk), plus optional query history
+  from `queryinsights.exec_requests_history` (anonymized before use).
+- **Two-axis scoring** — Migration Effort (inverted toward AUTO for the
+  open-format source) and Query Complexity (T-SQL constructs).
+- **Iceberg converter** maps Fabric types to Athena Iceberg DDL types, lowercases
+  names for Amazon S3 Tables, and flags lossy casts.
+- **Athena engine** — rewrite guidance + best-effort `sqlglot` translation and a
+  directional cost model.
+- **Reports** — paired HTML + JSON, plus a checksummed collect-then-report bundle.
+
+Redshift as a second query engine and a live AWS Price List lookup are planned
+follow-ups.
+
+## Install
+
+```bash
+pip install -e .          # add .[dev] for the test + lint tooling
+```
+
+The scanner needs the ODBC Driver 18 for SQL Server and `pyodbc` /
+`azure-identity` at run time; the offline `report --bundle` path does not.
+
+## Usage
+
+```bash
+# Full assessment against a live Fabric Warehouse
+fabric-assess assess \
+  --server <workspace>.datawarehouse.fabric.microsoft.com \
+  --warehouse SalesWH --out reports --format both \
+  --fabric-monthly <F-SKU monthly USD> --storage-gb <OneLake GB>
+```
+
+`--fabric-monthly` and `--storage-gb` are optional. The SQL analytics endpoint
+does not report table storage size, so the storage estimate needs the OneLake
+footprint from you, and per-table data volume is left for you to confirm.
+
+```bash
+# Collect where your Fabric credentials live, report anywhere (offline)
+fabric-collect --server <...> --warehouse SalesWH --out collected
+fabric-assess report --bundle collected/bundle --out reports
+```
+
+## Develop
+
+```bash
+pytest                       # unit + integration + property tests
+ruff check src tests         # lint
+bandit -c bandit.yml -r src  # security scan
+```
+
+## License
+
+MIT-0 (aws-samples convention).
+
+## Testing against a local SQL Server (no Fabric tenant needed)
+
+The Fabric SQL analytics endpoint speaks the TDS protocol, so the collector can be
+validated against a local Microsoft SQL Server using SQL authentication:
+
+```bash
+docker run -e "ACCEPT_EULA=Y" -e "MSSQL_SA_PASSWORD=<password>" \
+  -p 1433:1433 --name fabric-test -d mcr.microsoft.com/mssql/server:2022-latest
+# seed a database (see tests/fixtures/seed.sql for an example schema)
+fabric-assess assess --server 127.0.0.1 --warehouse <db> \
+  --username sa --password '<password>' --port 1433 --trust-server-certificate \
+  --out reports --format both
+```
+
+The `--username/--password/--trust-server-certificate` flags are for local testing
+only. A real Fabric warehouse uses Microsoft Entra token authentication (the default
+path), not SQL auth. On macOS the ODBC Driver 18 needs OpenSSL discoverable, e.g.
+`export DYLD_LIBRARY_PATH="$(brew --prefix openssl@3)/lib:$DYLD_LIBRARY_PATH"`.
