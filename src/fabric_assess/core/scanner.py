@@ -76,25 +76,29 @@ _LIST_OBJECTS_NO_ROWS_SQL = """
       AND o.is_ms_shipped = 0
 """
 
-# Query history from Fabric Query Insights. The lookback is bound as a
-# parameter; the view and column names are static.
+# Query history from Fabric Query Insights (queryinsights.exec_requests_history).
+# Column names, status values and the DATEADD/GETUTCDATE idiom follow the
+# Microsoft Learn reference for the view. Query Insights keeps 30 days of
+# history and needs Contributor or higher on the workspace. The lookback is
+# bound as a parameter (passed as a negative day count); names are static.
 _WORKLOAD_SUMMARY_SQL = """
     SELECT COUNT(*) AS total_queries,
-           COUNT(DISTINCT CAST(start_time AS date)) AS days_sampled,
+           DATEDIFF(day, MIN(start_time), GETUTCDATE()) + 1 AS days_spanned,
            SUM(CAST(ISNULL(allocated_cpu_time_ms, 0) AS bigint)) AS cpu_ms,
            SUM(ISNULL(data_scanned_remote_storage_mb, 0)
                + ISNULL(data_scanned_memory_mb, 0)
                + ISNULL(data_scanned_disk_mb, 0)) AS scanned_mb
     FROM queryinsights.exec_requests_history
-    WHERE start_time >= DATEADD(day, -?, SYSUTCDATETIME())
+    WHERE start_time >= DATEADD(day, ?, GETUTCDATE())
       AND status = 'Succeeded'
 """
 
+# Row cap is applied client-side with fetchmany, so TOP is not parameterized.
 _WORKLOAD_QUERIES_SQL = """
-    SELECT TOP (?) command, total_elapsed_time_ms, allocated_cpu_time_ms,
+    SELECT command, total_elapsed_time_ms, allocated_cpu_time_ms,
            data_scanned_remote_storage_mb, statement_type, submit_time
     FROM queryinsights.exec_requests_history
-    WHERE start_time >= DATEADD(day, -?, SYSUTCDATETIME())
+    WHERE start_time >= DATEADD(day, ?, GETUTCDATE())
       AND status = 'Succeeded'
       AND statement_type = 'SELECT'
     ORDER BY submit_time DESC
@@ -353,9 +357,10 @@ class FabricScanner:
 
         conn = self._connect()
         try:
-            summary = self._query(conn, _WORKLOAD_SUMMARY_SQL, (lookback_days,))
+            lookback = min(max(int(lookback_days), 1), 30)  # QI retention is 30 days
+            summary = self._query(conn, _WORKLOAD_SUMMARY_SQL, (-lookback,))
             rows = self._query(
-                conn, _WORKLOAD_QUERIES_SQL, (max_queries, lookback_days)
+                conn, _WORKLOAD_QUERIES_SQL, (-lookback,), limit=max_queries
             )
         except Exception as exc:
             logger.warning("query history unavailable (%s); metadata only", exc)
@@ -365,13 +370,15 @@ class FabricScanner:
         total = int(total or 0)
         if total == 0:
             return None, []
-        days = int(days or 0)
+        # Scale over the calendar span the history covers (capped at the
+        # lookback), not just the days that had queries, so idle days count.
+        days = min(int(days or 0), lookback)
         scanned_tb_window = float(scanned_mb or 0) / (1024.0 * 1024.0)
         profile = WorkloadProfile(
             has_data=True,
             total_queries=total,
             days_sampled=days,
-            lookback_days=lookback_days,
+            lookback_days=lookback,
             queries_per_day=round(total / days, 2) if days else 0.0,
             # Scale the sampled window to a 30-day month.
             monthly_scanned_tb=scanned_tb_window * 30.0 / days if days else 0.0,
@@ -393,13 +400,17 @@ class FabricScanner:
         ]
         return profile, queries
 
-    def _query(self, conn, sql: str, params: tuple = ()) -> list[tuple]:
+    def _query(
+        self, conn, sql: str, params: tuple = (), limit: int | None = None
+    ) -> list[tuple]:
         cursor = conn.cursor()
         try:
             if params:
                 cursor.execute(sql, *params)
             else:
                 cursor.execute(sql)
+            if limit is not None:
+                return cursor.fetchmany(limit)
             return cursor.fetchall()
         finally:
             cursor.close()

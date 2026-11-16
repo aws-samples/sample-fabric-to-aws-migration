@@ -163,12 +163,18 @@ class TestWorkloadCollection:
 
             def execute(self, sql, *params):
                 self.sql = sql
+                self.params = params
+                assert params and params[0] < 0  # negative day offset
+                assert "GETUTCDATE()" in sql and "TOP (?)" not in sql
 
-            def fetchall(self):
-                if "COUNT(*)" in self.sql:
-                    return [(100, 10, 5000, 1024.0 * 1024.0)]  # 1 TB over 10 days
+            def fetchmany(self, n):
+                assert n == 1000
                 return [("SELECT TOP 5 * FROM t WHERE x = 'secret'", 10, 5, 1.0,
                          "SELECT", "2026-01-01")]
+
+            def fetchall(self):
+                # 1 TB over a 10-day span
+                return [(100, 10, 5000, 1024.0 * 1024.0)]
 
             def close(self):
                 pass
@@ -179,7 +185,8 @@ class TestWorkloadCollection:
 
         s = FabricScanner("srv", "db")
         s._conn = _Conn()
-        profile, queries = s.collect_workload()
+        profile, queries = s.collect_workload(lookback_days=90)
+        assert profile.lookback_days == 30  # capped at Query Insights retention
         assert profile.has_data and profile.total_queries == 100
         assert abs(profile.monthly_scanned_tb - 3.0) < 1e-9
         assert "secret" not in queries[0].query
