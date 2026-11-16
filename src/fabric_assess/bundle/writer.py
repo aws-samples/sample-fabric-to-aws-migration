@@ -2,9 +2,9 @@
 
 The bundle is the collect-then-report seam: the collector writes it where Fabric
 credentials live; the analyst generates the report from it, fully offline. The
-``tables.json`` file carries the user's view/procedure SQL (already anonymized by
-the scanner's surface pass is NOT assumed here — bodies are raw definitions), so
-it is written one entity per line to stay reviewable before sharing.
+``tables.json`` and ``routines.json`` files carry the raw view and procedure
+definitions (not anonymized), so tables are written one entity per line to stay
+reviewable before sharing. ``queries.jsonl`` holds anonymized query history.
 """
 from __future__ import annotations
 
@@ -30,6 +30,8 @@ class BundleWriter:
         files["failures.json"] = self._write_failures(bundle, bundle_dir)
         if bundle.queries is not None:
             files["queries.jsonl"] = self._write_queries(bundle, bundle_dir)
+        if bundle.workload is not None:
+            files["workload.json"] = self._write_workload(bundle, bundle_dir)
 
         self._write_manifest(bundle, files, bundle_dir)
         return bundle_dir
@@ -95,6 +97,12 @@ class BundleWriter:
             for q in bundle.queries or []:
                 json.dump(asdict(q), f, ensure_ascii=False, default=str)
                 f.write("\n")
+        return sha256_file(path)
+
+    def _write_workload(self, bundle: Bundle, bundle_dir: str) -> str:
+        path = os.path.join(bundle_dir, "workload.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(asdict(bundle.workload), f, ensure_ascii=False, indent=2)
         return sha256_file(path)
 
     def _write_manifest(self, bundle: Bundle, files: dict[str, str], bundle_dir: str) -> None:

@@ -62,3 +62,36 @@ class TestAnalyzerPipeline:
         assert data["summary"]["total_tables"] == 1
         with open(html_path, encoding="utf-8") as f:
             assert "Migration Effort" in f.read()
+
+
+class TestWorkloadPipeline:
+    def test_workload_round_trips_and_feeds_analysis(self, tmp_path, table_entity, view_entity):
+        from fabric_assess.models import WorkloadProfile
+
+        b = _bundle([table_entity, view_entity])
+        b.workload = WorkloadProfile(has_data=True, total_queries=5, days_sampled=1,
+                                     monthly_scanned_tb=2.0)
+        b.queries = [QueryRecord(query="SELECT a FROM t CROSS APPLY OPENJSON(j)")]
+        loaded = BundleLoader().load(BundleWriter().write(b, str(tmp_path)))
+        assert loaded.workload and loaded.workload.monthly_scanned_tb == 2.0
+
+        a = Analyzer().analyze(
+            loaded.entities, workspace="ws/wh", workload=loaded.workload,
+            query_log_text=[q.query for q in loaded.queries],
+        )
+        assert "OPENJSON" in a.summary.workload_constructs
+        scan = next(x for x in a.cost.aws_lines if x.label == "Athena query scan")
+        assert scan.monthly == 10.0
+
+
+class TestTableComplexityAttribution:
+    def test_table_scored_from_referencing_view(self, table_entity, view_entity):
+        a = Analyzer().analyze([table_entity, view_entity], workspace="ws/wh")
+        table = next(r for r in a.entities if r.full_name == "dbo.orders")
+        assert table.effort is not None and table.complexity is not None
+        assert "CROSS_APPLY" in table.complexity.flags
+        assert "name this table" in table.complexity.reasoning
+
+    def test_unreferenced_table_has_no_complexity(self, clean_table_entity):
+        a = Analyzer().analyze([clean_table_entity], workspace="ws/wh")
+        assert a.entities[0].complexity is None

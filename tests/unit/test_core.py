@@ -90,3 +90,116 @@ class TestIcebergConverter:
     def test_view_produces_no_ddl(self, view_entity):
         res = IcebergConverter().convert(view_entity)
         assert res.success and res.ddl == ""
+
+
+class TestAthenaDdl:
+    """The DDL must be valid Athena Iceberg DDL for Amazon S3 Tables."""
+
+    def _entity(self, table_entity, columns, name="dbo.Orders"):
+        table_entity.full_name = name
+        table_entity.columns = columns
+        return table_entity
+
+    def test_athena_type_names_and_lowercase(self, table_entity):
+        from fabric_assess.models import ColumnSchema
+
+        e = self._entity(
+            table_entity,
+            [
+                ColumnSchema("OrderID", "bigint", False),
+                ColumnSchema("Amount", "decimal(18,2)", True),
+                ColumnSchema("CreatedAt", "datetime2", True),
+            ],
+        )
+        res = IcebergConverter().convert(e)
+        assert res.success
+        assert "orderid bigint" in res.ddl
+        assert " long" not in res.ddl
+        assert "amount decimal(18,2)" in res.ddl
+        assert "dbo_orders" in res.ddl
+        assert "NOT NULL" not in res.ddl  # Athena DDL has no NOT NULL
+        assert "LOCATION" not in res.ddl
+        assert any("NOT NULL" in w for w in res.warnings)
+        assert any("normalized" in w for w in res.warnings)
+
+    def test_time_and_uniqueidentifier_flagged(self, table_entity):
+        from fabric_assess.models import ColumnSchema
+
+        e = self._entity(
+            table_entity,
+            [ColumnSchema("t", "time", True), ColumnSchema("g", "uniqueidentifier", True)],
+            name="dbo.t",
+        )
+        res = IcebergConverter().convert(e)
+        assert {c.column for c in res.lossy_casts} == {"t", "g"}
+        assert " time" not in res.ddl and "timestamptz" not in res.ddl
+
+    def test_case_collision_fails(self, table_entity):
+        from fabric_assess.models import ColumnSchema
+
+        e = self._entity(
+            table_entity,
+            [ColumnSchema("Id", "int", True), ColumnSchema("ID", "int", True)],
+        )
+        assert not IcebergConverter().convert(e).success
+
+
+class TestCostRates:
+    def test_storage_rate_matches_public_pricing(self):
+        from fabric_assess.engine.athena import cost
+
+        assert cost.S3_TABLES_STORAGE_PER_GB_MONTH == 0.0265
+        lines = cost.estimate_athena_monthly(None, 1000.0)
+        assert lines[0].monthly_low == 26.5
+
+
+class TestWorkloadCollection:
+    def test_collect_workload_from_query_insights(self):
+        from fabric_assess.core.scanner import FabricScanner
+
+        class _Cur:
+            def __init__(self, conn):
+                self.conn = conn
+
+            def execute(self, sql, *params):
+                self.sql = sql
+
+            def fetchall(self):
+                if "COUNT(*)" in self.sql:
+                    return [(100, 10, 5000, 1024.0 * 1024.0)]  # 1 TB over 10 days
+                return [("SELECT TOP 5 * FROM t WHERE x = 'secret'", 10, 5, 1.0,
+                         "SELECT", "2026-01-01")]
+
+            def close(self):
+                pass
+
+        class _Conn:
+            def cursor(self):
+                return _Cur(self)
+
+        s = FabricScanner("srv", "db")
+        s._conn = _Conn()
+        profile, queries = s.collect_workload()
+        assert profile.has_data and profile.total_queries == 100
+        assert abs(profile.monthly_scanned_tb - 3.0) < 1e-9
+        assert "secret" not in queries[0].query
+
+    def test_collect_workload_unavailable_returns_none(self):
+        from fabric_assess.core.scanner import FabricScanner
+
+        class _Conn:
+            def cursor(self):
+                raise RuntimeError("Invalid object name 'queryinsights...'")
+
+        s = FabricScanner("srv", "db")
+        s._conn = _Conn()
+        assert s.collect_workload() == (None, [])
+
+
+def test_supplied_fabric_spend_is_not_reported_unknown():
+    from fabric_assess.engine.athena import cost
+    from fabric_assess.models import FabricCapacityModel
+
+    c = cost.build_comparison(cost.estimate_athena_monthly(None, 100.0), fabric_monthly=500.0)
+    assert c.fabric_capacity_model == FabricCapacityModel.CAPACITY
+    assert not any("UNKNOWN" in n for n in c.scope_notes)

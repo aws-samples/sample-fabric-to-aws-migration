@@ -22,15 +22,22 @@ from fabric_assess.targets.iceberg.constants import (
     LOSSY_TYPE_MAP,
 )
 
-# Iceberg/Athena identifier safety: letters, digits, underscore. Anything else is
-# quoted. Fabric identifiers are the user's own; this only shapes report text.
-_SAFE_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+# Amazon S3 Tables names allow only lowercase letters, digits and underscores,
+# and a name with capitals is not visible to AWS Glue, Lake Formation or Athena.
+# Fabric identifiers are normalized to that set; the report warns when a name
+# changes so queries can be updated. This only shapes report text.
+_UNSAFE_CHARS_RE = re.compile(r"[^a-z0-9_]")
 
 
-def _quote_ident(name: str) -> str:
-    if _SAFE_IDENT_RE.match(name):
-        return name
-    return '"' + name.replace('"', '""') + '"'
+def _quote_ident(name: str, *, table: bool = False) -> str:
+    """Normalize an identifier to the Amazon S3 Tables naming rules.
+
+    Table names must also begin with a letter or number.
+    """
+    norm = _UNSAFE_CHARS_RE.sub("_", name.lower())
+    if table and (not norm or norm[0] == "_"):
+        norm = "t" + norm
+    return norm or "col"
 
 
 def _base_type(field_type: str) -> str:
@@ -90,23 +97,54 @@ class IcebergConverter:
         lossy: list[LossyCast] = []
         warnings: list[str] = []
 
+        not_null: list[str] = []
         for col in entity.columns:
             iceberg_type, cast = _map_type(col)
             if cast is not None:
                 lossy.append(cast)
-            null_sql = "" if col.nullable else " NOT NULL"
-            lines.append(f"    {_quote_ident(col.name)} {iceberg_type}{null_sql}")
+            if not col.nullable:
+                not_null.append(_quote_ident(col.name))
+            # Athena CREATE TABLE has no NOT NULL constraint; nullability is
+            # reported as a warning instead.
+            lines.append(f"    {_quote_ident(col.name)} {iceberg_type}")
+        if not_null:
+            warnings.append(
+                "Athena DDL cannot declare NOT NULL; enforce in the load for: "
+                + ", ".join(not_null)
+            )
 
-        # Amazon S3 Tables manage their own storage inside a table bucket, so the
-        # table is created in the s3tablescatalog namespace and Athena rejects a
-        # user-supplied LOCATION clause. Qualify the table into the catalog's
-        # namespace and omit LOCATION; the Iceberg table_type is still required.
-        table_name = _quote_ident(entity.full_name.replace(".", "_"))
-        table_ident = (
-            f'"s3tablescatalog/<your-table-bucket>"."<your-namespace>".{table_name}'
-        )
+        renamed = [
+            f"{c.name} -> {_quote_ident(c.name)}"
+            for c in entity.columns
+            if _quote_ident(c.name) != c.name
+        ]
+        table_src = entity.full_name.replace(".", "_")
+        if _quote_ident(table_src, table=True) != table_src:
+            renamed.insert(0, f"{entity.full_name} -> {_quote_ident(table_src, table=True)}")
+        if renamed:
+            warnings.append(
+                "names normalized for Amazon S3 Tables (lowercase letters, digits, "
+                "underscores); update queries that use the old names: "
+                + ", ".join(renamed)
+            )
+        normalized = [_quote_ident(c.name) for c in entity.columns]
+        if len(set(normalized)) != len(normalized):
+            return ConversionResult(
+                ddl="",
+                lossy_casts=lossy,
+                warnings=warnings
+                + ["column names collide after normalization; rename before the copy"],
+                success=False,
+            )
+
+        # Amazon S3 Tables manage their own storage inside a table bucket, so
+        # Athena rejects a LOCATION clause. Run the DDL with the query context
+        # catalog set to s3tablescatalog/<table-bucket> and the namespace as the
+        # database, per the Athena S3 Tables documentation.
+        table_name = _quote_ident(table_src, table=True)
         ddl = (
-            f"CREATE TABLE {table_ident} (\n"
+            "-- Run in Athena with Catalog = s3tablescatalog/<your-table-bucket>\n"
+            f"CREATE TABLE <your_namespace>.{table_name} (\n"
             + ",\n".join(lines)
             + "\n)\nTBLPROPERTIES ('table_type' = 'ICEBERG');"
         )

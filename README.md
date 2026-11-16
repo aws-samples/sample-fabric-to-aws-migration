@@ -6,8 +6,9 @@ Serverless** or **Amazon Athena**. The `fabric-assess` CLI reads Fabric
 metadata (read-only, never table data) through the warehouse's SQL analytics
 endpoint, scores every table on two independent axes — **Migration Effort**
 (moving the data) and **Query Complexity** (keeping the T-SQL running) — and
-generates Iceberg DDL, load guidance, an engine recommendation, and a
-directional Fabric-vs-AWS cost comparison as HTML + JSON reports.
+generates Amazon Athena DDL for Amazon S3 Tables, a per-table load strategy,
+Athena rewrite guidance, and a directional Fabric-vs-AWS cost comparison as
+HTML + JSON reports.
 
 It **assesses; it does not execute the migration** — and it needs no AWS
 account to run.
@@ -31,10 +32,12 @@ migration commitment.
 Alpha MVP — a working end-to-end assessment pipeline:
 
 - **Scanner** reads Fabric metadata over the SQL analytics endpoint (TDS /
-  Entra token auth; no secret written to disk).
+  Entra token auth; no secret written to disk), plus optional query history
+  from `queryinsights.exec_requests_history` (anonymized before use).
 - **Two-axis scoring** — Migration Effort (inverted toward AUTO for the
   open-format source) and Query Complexity (T-SQL constructs).
-- **Iceberg converter** maps T-SQL/Delta types and flags lossy casts.
+- **Iceberg converter** maps Fabric types to Athena Iceberg DDL types, lowercases
+  names for Amazon S3 Tables, and flags lossy casts.
 - **Athena engine** — rewrite guidance + best-effort `sqlglot` translation and a
   directional cost model.
 - **Reports** — paired HTML + JSON, plus a checksummed collect-then-report bundle.
@@ -57,8 +60,15 @@ The scanner needs the ODBC Driver 18 for SQL Server and `pyodbc` /
 # Full assessment against a live Fabric Warehouse
 fabric-assess assess \
   --server <workspace>.datawarehouse.fabric.microsoft.com \
-  --warehouse SalesWH --out reports --format both
+  --warehouse SalesWH --out reports --format both \
+  --fabric-monthly <F-SKU monthly USD> --storage-gb <OneLake GB>
+```
 
+`--fabric-monthly` and `--storage-gb` are optional. The SQL analytics endpoint
+does not report table storage size, so the storage estimate needs the OneLake
+footprint from you, and per-table data volume is left for you to confirm.
+
+```bash
 # Collect where your Fabric credentials live, report anywhere (offline)
 fabric-collect --server <...> --warehouse SalesWH --out collected
 fabric-assess report --bundle collected/bundle --out reports

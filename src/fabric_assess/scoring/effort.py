@@ -57,8 +57,8 @@ class EffortScorer:
         size_bytes = entity.num_bytes or 0
 
         # Data-volume tier. For an open-format source this is a secondary signal:
-        # it only drives the in-place-vs-copy strategy and staging effort, not a
-        # re-encode. Hence higher thresholds and lower weight for an open-format source.
+        # it drives copy staging effort, not a re-encode. Hence higher thresholds
+        # and lower weight than for a proprietary-format source.
         if size_bytes >= _HUGE_THRESHOLD:
             points += 1
             flags.append("data_volume_huge")
@@ -89,7 +89,9 @@ class EffortScorer:
         category = _category_for(points)
         strategy = self._strategy_for(size_bytes, n_lossy)
 
-        confidence = ConfidenceLevel.LOW if entity.num_bytes is None else ConfidenceLevel.HIGH
+        # Fabric's SQL endpoint does not report table storage size, so without a
+        # byte count the volume tier is unknown and confidence drops.
+        confidence = ConfidenceLevel.HIGH if entity.num_bytes else ConfidenceLevel.LOW
 
         return EffortResult(
             category=category,

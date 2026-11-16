@@ -28,8 +28,7 @@ dependencies = [
     # pyodbc needs ODBC Driver 18; azure-identity provides Entra token auth.
     "pyodbc>=5.0",
     "azure-identity>=1.15",
-    # SQL dialect translation (T-SQL -> Redshift / Athena). Same lib the
-    # reference tool uses; it has a tsql source dialect.
+    # SQL dialect translation (T-SQL -> Athena); sqlglot has a tsql source dialect.
     "sqlglot>=25.0,<31",
 ]
 

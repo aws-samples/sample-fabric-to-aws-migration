@@ -67,7 +67,7 @@ _OPENJSON_RE = re.compile(r"\b(OPENJSON|JSON_VALUE|JSON_QUERY|JSON_MODIFY)\s*\("
 # CROSS APPLY / OUTER APPLY — correlated lateral, rewritten as lateral/join.
 _CROSS_APPLY_RE = re.compile(r"\b(CROSS|OUTER)\s+APPLY\b", re.IGNORECASE)
 
-# STRING_AGG(expr, sep) — maps to LISTAGG with a WITHIN GROUP clause.
+# STRING_AGG(expr, sep) — array_join(array_agg()) on Athena, LISTAGG on Redshift.
 _STRING_AGG_RE = re.compile(r"\bSTRING_AGG\s*\(", re.IGNORECASE)
 
 # MERGE — T-SQL MERGE semantics differ from Iceberg/engine MERGE.
@@ -109,7 +109,7 @@ _DETECTORS: list[tuple[str, re.Pattern[str], str]] = [
     (CLR, _CLR_RE, "CLR / external-name routine — no Query Engine equivalent; manual rewrite."),
     (OPENJSON, _OPENJSON_RE, "OPENJSON / JSON_* shredding — rewrite to engine JSON/SUPER navigation."),
     (CROSS_APPLY, _CROSS_APPLY_RE, "CROSS/OUTER APPLY — rewrite as a lateral/join pattern for the Query Engine."),
-    (STRING_AGG, _STRING_AGG_RE, "STRING_AGG — maps to LISTAGG WITHIN GROUP; verify ordering."),
+    (STRING_AGG, _STRING_AGG_RE, "STRING_AGG — array_join(array_agg()) on Athena, LISTAGG on Redshift; check ordering."),
     (MERGE, _MERGE_RE, "MERGE — T-SQL MERGE semantics differ from the engine; review carefully."),
     (PIVOT, _PIVOT_RE, "PIVOT/UNPIVOT — rewrite as CASE aggregation or unnest."),
     (TOP, _TOP_RE, "SELECT TOP n — maps to LIMIT n; WITH TIES / PERCENT needs manual review."),

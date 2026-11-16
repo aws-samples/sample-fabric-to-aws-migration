@@ -72,16 +72,17 @@ class StorageTarget(str, Enum):
 
 
 class FabricCapacityModel(Enum):
-    """How the Fabric source is billed. VERIFY unit terminology before publish."""
+    """How the Fabric source is billed (F-SKU capacity, measured in capacity units)."""
     CAPACITY = "CAPACITY"   # F-SKU capacity (CU-based), the normal Fabric model
     UNKNOWN = "UNKNOWN"
 
 
 class MigrationStrategy(str, Enum):
-    """The Fabric-specific effort decision the inverted axis surfaces.
+    """How a table's data reaches AWS.
 
-    Because OneLake data is already open Delta/Iceberg, moving it is not a
-    proprietary export; it is a choice between querying in place and copying.
+    OneLake data is already open Delta Parquet with Iceberg metadata, so moving it
+    is not a proprietary export. Copying into Amazon S3 Tables is the default;
+    querying in place is recorded only as an option to evaluate.
     """
     IN_PLACE = "in_place"     # query OneLake Iceberg surface from AWS. UNVERIFIED cross-cloud:
                               # OneLake exposes an Iceberg REST catalog and AWS Glue supports IRC
@@ -156,7 +157,7 @@ class EffortResult:
     flags: list[str]
     reasoning: str
     confidence: ConfidenceLevel
-    # Fabric-specific: the in-place-vs-copy recommendation for this table.
+    # How the data reaches AWS (copy to Amazon S3 Tables by default).
     strategy: MigrationStrategy = MigrationStrategy.COPY_TO_S3
 
 
@@ -201,8 +202,8 @@ class CostLine:
 
 @dataclass
 class WorkloadProfile:
-    """Workload metrics from queryinsights.exec_requests_history, used for AWS
-    engine sizing + justification. VERIFY the CPU-time -> RPU bridge."""
+    """Workload metrics from queryinsights.exec_requests_history, used for the
+    Athena scan-cost estimate. Fields that are not collected keep their defaults."""
     has_data: bool = False
     total_stored_gb: float = 0.0
     total_queries: int = 0

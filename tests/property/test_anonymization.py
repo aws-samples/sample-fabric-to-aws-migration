@@ -3,7 +3,7 @@
 This is the AppSec-load-bearing invariant for the tool: whatever SQL the surface
 analyzer ingests, no original single-quoted string literal survives into the
 anonymized output, so a secret pasted into a view/query body cannot reach a
-report. Mirrors the reference tool's anonymization property suite.
+report.
 """
 from __future__ import annotations
 

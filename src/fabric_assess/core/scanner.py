@@ -13,9 +13,10 @@ wire protocol). We reach it with pyodbc (ODBC Driver 18) and authenticate with a
 Microsoft Entra access token obtained via azure-identity — no password or secret
 is ever written to disk. Metadata is read from the standard catalog views:
 
-  - sys.tables / sys.columns / sys.types / sys.schemas  (schema)
-  - sys.sql_modules + sys.objects                       (view / proc / function bodies)
-  - INFORMATION_SCHEMA.VIEWS                             (view text fallback)
+  - sys.objects / sys.schemas / sys.columns / sys.types  (schema)
+  - sys.partitions                                       (row counts, optional)
+  - sys.sql_modules                                      (view / proc / function bodies)
+  - queryinsights.exec_requests_history                  (query history, optional)
 
 Both pyodbc and azure-identity are imported lazily so the rest of the package
 (models, scoring, report, bundle) imports and tests without the native ODBC
@@ -28,6 +29,7 @@ import logging
 import struct
 from collections.abc import Iterator
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
 from fabric_assess.core.classifier import classify_population
 from fabric_assess.models import (
@@ -36,7 +38,11 @@ from fabric_assess.models import (
     EntityType,
     FailureRecord,
     RoutineMetadata,
+    WorkloadProfile,
 )
+
+if TYPE_CHECKING:
+    from fabric_assess.bundle.models import QueryRecord
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +65,40 @@ _OBJECT_TYPE_MAP: dict[str, EntityType] = {
 
 class ScannerError(Exception):
     """Raised on a fatal scanner error (auth failure, endpoint unreachable)."""
+
+
+_LIST_OBJECTS_NO_ROWS_SQL = """
+    SELECT o.object_id, s.name AS schema_name, o.name AS object_name,
+           o.type AS object_type, o.modify_date, 0 AS num_rows
+    FROM sys.objects o
+    JOIN sys.schemas s ON s.schema_id = o.schema_id
+    WHERE o.type IN ('U','V','P','FN','TF','IF')
+      AND o.is_ms_shipped = 0
+"""
+
+# Query history from Fabric Query Insights. The lookback is bound as a
+# parameter; the view and column names are static.
+_WORKLOAD_SUMMARY_SQL = """
+    SELECT COUNT(*) AS total_queries,
+           COUNT(DISTINCT CAST(start_time AS date)) AS days_sampled,
+           SUM(CAST(ISNULL(allocated_cpu_time_ms, 0) AS bigint)) AS cpu_ms,
+           SUM(ISNULL(data_scanned_remote_storage_mb, 0)
+               + ISNULL(data_scanned_memory_mb, 0)
+               + ISNULL(data_scanned_disk_mb, 0)) AS scanned_mb
+    FROM queryinsights.exec_requests_history
+    WHERE start_time >= DATEADD(day, -?, SYSUTCDATETIME())
+      AND status = 'Succeeded'
+"""
+
+_WORKLOAD_QUERIES_SQL = """
+    SELECT TOP (?) command, total_elapsed_time_ms, allocated_cpu_time_ms,
+           data_scanned_remote_storage_mb, statement_type, submit_time
+    FROM queryinsights.exec_requests_history
+    WHERE start_time >= DATEADD(day, -?, SYSUTCDATETIME())
+      AND status = 'Succeeded'
+      AND statement_type = 'SELECT'
+    ORDER BY submit_time DESC
+"""
 
 
 class FabricScanner:
@@ -233,23 +273,33 @@ class FabricScanner:
         )
 
     # ------------------------------------------------------------------
-    # Catalog queries. Identifiers are system catalog views; the only
-    # interpolation anywhere in the scanner is none — these are static.
+    # Catalog queries. Identifiers are static system views; the only
+    # runtime values (lookback days, row cap) are bound as parameters.
     # ------------------------------------------------------------------
 
     def _list_objects(self, conn) -> list[dict]:
         sql = """
             SELECT o.object_id, s.name AS schema_name, o.name AS object_name,
                    o.type AS object_type, o.modify_date,
-                   ISNULL(p.rows, 0) AS num_rows
+                   ISNULL(p.num_rows, 0) AS num_rows
             FROM sys.objects o
             JOIN sys.schemas s ON s.schema_id = o.schema_id
-            LEFT JOIN sys.partitions p
-                   ON p.object_id = o.object_id AND p.index_id IN (0, 1)
+            LEFT JOIN (
+                SELECT object_id, SUM(rows) AS num_rows
+                FROM sys.partitions
+                WHERE index_id IN (0, 1)
+                GROUP BY object_id
+            ) p ON p.object_id = o.object_id
             WHERE o.type IN ('U','V','P','FN','TF','IF')
               AND o.is_ms_shipped = 0
         """
-        rows = self._query(conn, sql)
+        try:
+            rows = self._query(conn, sql)
+        except Exception as exc:
+            # Row counts are a nice-to-have; fall back to the object list alone
+            # if the endpoint does not expose sys.partitions.
+            logger.warning("row counts unavailable (%s); continuing without them", exc)
+            rows = self._query(conn, _LIST_OBJECTS_NO_ROWS_SQL)
         objects: list[dict] = []
         for r in rows:
             objects.append(
@@ -267,15 +317,21 @@ class FabricScanner:
 
     def _columns_by_object(self, conn) -> dict[int, list[ColumnSchema]]:
         sql = """
-            SELECT c.object_id, c.name, t.name AS type_name, c.is_nullable
+            SELECT c.object_id, c.name, t.name AS type_name, c.is_nullable,
+                   c.precision, c.scale
             FROM sys.columns c
             JOIN sys.types t ON t.user_type_id = c.user_type_id
             ORDER BY c.object_id, c.column_id
         """
         result: dict[int, list[ColumnSchema]] = {}
         for r in self._query(conn, sql):
+            type_name = r[2]
+            if type_name.lower() in ("decimal", "numeric") and len(r) >= 6:
+                # Keep declared precision/scale so the DDL does not widen or
+                # truncate values.
+                type_name = f"{type_name}({r[4]},{r[5]})"
             result.setdefault(r[0], []).append(
-                ColumnSchema(name=r[1], field_type=r[2], nullable=bool(r[3]))
+                ColumnSchema(name=r[1], field_type=type_name, nullable=bool(r[3]))
             )
         return result
 
@@ -283,10 +339,67 @@ class FabricScanner:
         sql = "SELECT object_id, definition FROM sys.sql_modules"
         return {r[0]: r[1] for r in self._query(conn, sql) if r[1]}
 
-    def _query(self, conn, sql: str) -> list[tuple]:
+    def collect_workload(
+        self, lookback_days: int = 30, max_queries: int = 1000
+    ) -> tuple[WorkloadProfile | None, list[QueryRecord]]:
+        """Read optional query history from ``queryinsights.exec_requests_history``.
+
+        Returns ``(None, [])`` when the view is unavailable (for example, missing
+        Contributor permission, or a SQL Server test database), so the assessment
+        still runs on metadata alone. Query text is anonymized before it is kept.
+        """
+        from fabric_assess.bundle.models import QueryRecord
+        from fabric_assess.core.sql_surface import SQLSurfaceAnalyzer
+
+        conn = self._connect()
+        try:
+            summary = self._query(conn, _WORKLOAD_SUMMARY_SQL, (lookback_days,))
+            rows = self._query(
+                conn, _WORKLOAD_QUERIES_SQL, (max_queries, lookback_days)
+            )
+        except Exception as exc:
+            logger.warning("query history unavailable (%s); metadata only", exc)
+            return None, []
+
+        total, days, cpu_ms, scanned_mb = summary[0] if summary else (0, 0, 0, 0)
+        total = int(total or 0)
+        if total == 0:
+            return None, []
+        days = int(days or 0)
+        scanned_tb_window = float(scanned_mb or 0) / (1024.0 * 1024.0)
+        profile = WorkloadProfile(
+            has_data=True,
+            total_queries=total,
+            days_sampled=days,
+            lookback_days=lookback_days,
+            queries_per_day=round(total / days, 2) if days else 0.0,
+            # Scale the sampled window to a 30-day month.
+            monthly_scanned_tb=scanned_tb_window * 30.0 / days if days else 0.0,
+            total_cpu_time_ms=int(cpu_ms or 0),
+        )
+
+        anon = SQLSurfaceAnalyzer()
+        queries = [
+            QueryRecord(
+                query=anon.anonymize(r[0] or ""),
+                total_elapsed_time_ms=int(r[1] or 0),
+                allocated_cpu_time_ms=int(r[2] or 0),
+                data_scanned_remote_storage_mb=float(r[3]) if r[3] is not None else None,
+                statement_type=r[4],
+                submit_time=str(r[5]) if r[5] is not None else None,
+            )
+            for r in rows
+            if r[0]
+        ]
+        return profile, queries
+
+    def _query(self, conn, sql: str, params: tuple = ()) -> list[tuple]:
         cursor = conn.cursor()
         try:
-            cursor.execute(sql)
+            if params:
+                cursor.execute(sql, *params)
+            else:
+                cursor.execute(sql)
             return cursor.fetchall()
         finally:
             cursor.close()

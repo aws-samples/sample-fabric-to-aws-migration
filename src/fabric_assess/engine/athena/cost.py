@@ -1,8 +1,8 @@
 """Directional cost model: Amazon Athena + Amazon S3 Tables storage.
 
-All figures are DIRECTIONAL estimates with explicit confidence, mirroring the
-reference tool's posture. Athena bills per TB scanned; S3 Tables bills for storage
-and maintenance. The Fabric side is a capacity (CU / F-SKU) model the user must
+All figures are DIRECTIONAL estimates with explicit confidence. Athena bills per
+TB scanned; S3 Tables bills for storage, requests, object monitoring and
+compaction. The Fabric side is a capacity (CU / F-SKU) model the user must
 confirm — we never print a hard Fabric number without labelling it UNKNOWN unless
 the caller supplies one.
 """
@@ -18,9 +18,12 @@ from fabric_assess.models import (
 
 # Public, directional default rates (us-east-1). The report labels these as
 # estimates; a live Price List lookup can override them in a later pass.
-ATHENA_PER_TB_SCANNED = 5.00          # USD per TB scanned
-S3_TABLES_STORAGE_PER_GB_MONTH = 0.025  # USD per GB-month (storage)
-S3_TABLES_MAINTENANCE_PER_GB_MONTH = 0.03  # USD per GB-month (compaction/maintenance, directional)
+ATHENA_PER_TB_SCANNED = 5.00             # USD per TB scanned
+S3_TABLES_STORAGE_PER_GB_MONTH = 0.0265  # USD per GB-month, first 50 TB (S3 pricing page)
+# Compaction is billed per GB processed ($0.005/GB for default binpack) plus a
+# small per-object fee. Upper bound assumes the whole table is rewritten once a
+# month; real compaction usually touches only new small files.
+S3_TABLES_MAINTENANCE_PER_GB_MONTH = 0.005
 _GB_PER_TB = 1024.0
 
 
@@ -42,7 +45,11 @@ def estimate_athena_monthly(
             monthly_low=round(total_stored_gb * S3_TABLES_STORAGE_PER_GB_MONTH, 2),
             monthly_high=round(storage_monthly, 2),
             confidence=ConfidenceLevel.HIGH if total_stored_gb else ConfidenceLevel.LOW,
-            source_note="S3 Tables public storage rate (us-east-1), directional",
+            source_note=(
+                "S3 Tables public storage rate, plus compaction as an upper bound"
+                if total_stored_gb
+                else "table sizes are not reported by the SQL endpoint; pass --storage-gb"
+            ),
         )
     )
 
@@ -85,6 +92,8 @@ def build_comparison(
     aws_region: str = "us-east-1",
 ) -> CostComparison:
     """Assemble a directional Fabric-vs-AWS cost comparison from the AWS lines."""
+    if fabric_monthly > 0 and fabric_capacity_model == FabricCapacityModel.UNKNOWN:
+        fabric_capacity_model = FabricCapacityModel.CAPACITY
     aws_low = sum(x.monthly_low or 0.0 for x in aws_lines)
     aws_high = sum(x.monthly_high or x.monthly or 0.0 for x in aws_lines)
 

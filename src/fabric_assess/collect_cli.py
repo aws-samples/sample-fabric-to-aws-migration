@@ -30,6 +30,7 @@ def main(server, warehouse, out_dir, aws_region) -> None:
     scanner = FabricScanner(server=server, database=warehouse)
     try:
         entities = list(scanner.scan())
+        workload, queries = scanner.collect_workload()
     except ScannerError as exc:
         click.echo(f"error: {exc}", err=True)
         sys.exit(2)
@@ -40,6 +41,8 @@ def main(server, warehouse, out_dir, aws_region) -> None:
         aws_region=aws_region,
         entities=entities,
         failures=scanner.failures,
+        workload=workload,
+        queries=queries if workload is not None else None,
         collector_version=__version__,
         created_at=datetime.now(timezone.utc).isoformat(),
     )

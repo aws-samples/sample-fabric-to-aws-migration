@@ -50,8 +50,10 @@ REWRITE_GUIDANCE: dict[str, str] = {
     ),
     "FUNCTION_DRIFT": (
         "Function drift: map ISNULL->COALESCE, GETDATE()->current_timestamp, "
-        "DATEADD/DATEDIFF->date_add/date_diff (argument order differs), "
-        "LEN->length, CHARINDEX->strpos, IIF->IF."
+        "DATEADD/DATEDIFF->date_add/date_diff (the date part becomes a string "
+        "literal such as 'day'), LEN->length, CHARINDEX(sub, str)->strpos(str, "
+        "sub) (argument order is reversed), IIF->if, CONVERT/FORMAT->CAST or "
+        "format_datetime."
     ),
 }
 

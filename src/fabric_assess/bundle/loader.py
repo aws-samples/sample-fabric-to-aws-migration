@@ -23,6 +23,7 @@ from fabric_assess.models import (
     EntityType,
     FailureRecord,
     RoutineMetadata,
+    WorkloadProfile,
 )
 
 
@@ -49,6 +50,11 @@ class BundleLoader:
             FailureRecord(**x) for x in self._read_json(os.path.join(bundle_dir, "failures.json"))
         ]
         queries = self._load_queries(bundle_dir, manifest.get("files", {}))
+        workload = None
+        if "workload.json" in manifest.get("files", {}):
+            workload = WorkloadProfile(
+                **self._read_json(os.path.join(bundle_dir, "workload.json"))
+            )
 
         return Bundle(
             workspace=manifest.get("workspace", ""),
@@ -57,6 +63,7 @@ class BundleLoader:
             entities=entities,
             failures=failures,
             queries=queries,
+            workload=workload,
             collector_version=manifest.get("collector_version", ""),
             created_at=manifest.get("created_at", ""),
         )
