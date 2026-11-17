@@ -218,3 +218,16 @@ def test_supplied_fabric_spend_is_not_reported_unknown():
     c = cost.build_comparison(cost.estimate_athena_monthly(None, 100.0), fabric_monthly=500.0)
     assert c.fabric_capacity_model == FabricCapacityModel.CAPACITY
     assert not any("UNKNOWN" in n for n in c.scope_notes)
+
+
+class TestTypeMapSections:
+    def test_fabric_only_types_are_flagged_or_clean_as_expected(self):
+        from fabric_assess.targets.iceberg.constants import CLEAN_TYPE_MAP, LOSSY_TYPE_MAP
+
+        # Fabric types that need review must not sit in the clean map.
+        for t in ("time", "uniqueidentifier"):
+            assert t in LOSSY_TYPE_MAP and t not in CLEAN_TYPE_MAP
+        # Legacy SQL Server types stay mapped for the SQL Server test scan.
+        for t in ("tinyint", "nchar", "nvarchar"):
+            assert CLEAN_TYPE_MAP[t] in ("int", "string")
+        assert "datetimeoffset" in LOSSY_TYPE_MAP
