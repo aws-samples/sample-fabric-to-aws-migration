@@ -95,3 +95,19 @@ class TestTableComplexityAttribution:
     def test_unreferenced_table_has_no_complexity(self, clean_table_entity):
         a = Analyzer().analyze([clean_table_entity], workspace="ws/wh")
         assert a.entities[0].complexity is None
+
+
+class TestReportsDoNotLeakLiterals:
+    def test_translated_sql_has_no_literals(self, tmp_path, view_entity):
+        view_entity.view_query = (
+            "SELECT TOP 5 id FROM dbo.orders "
+            "WHERE api_key = 'sk-SECRET-123' AND region_id = 98765"
+        )
+        a = Analyzer().analyze([view_entity], workspace="ws/wh")
+        json_path = JsonWriter().write(a, str(tmp_path))
+        html_path = HtmlWriter().write(a, str(tmp_path))
+        for path in (json_path, html_path):
+            with open(path, encoding="utf-8") as f:
+                text = f.read()
+            assert "sk-SECRET-123" not in text
+            assert "98765" not in text
