@@ -184,7 +184,10 @@ class Analyzer:
                 or (entity.routine.body if entity.routine else None)
             )
             if primary_sql:
-                translated = athena_rewrite.translate(primary_sql)
+                # Anonymize first so literals (keys, passwords, ids) never reach the report.
+                translated = athena_rewrite.translate(
+                    self._surface.anonymize(primary_sql)
+                )
 
         return EntityReport(
             full_name=entity.full_name,
