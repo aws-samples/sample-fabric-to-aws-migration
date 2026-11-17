@@ -20,8 +20,8 @@ from __future__ import annotations
 
 # Clean, information-preserving maps: T-SQL type (lowercased) -> Athena DDL type.
 CLEAN_TYPE_MAP: dict[str, str] = {
+    # Types a Fabric Warehouse table can hold.
     "bit": "boolean",
-    "tinyint": "int",
     "smallint": "int",
     "int": "int",
     "bigint": "bigint",
@@ -31,9 +31,13 @@ CLEAN_TYPE_MAP: dict[str, str] = {
     "datetime2": "timestamp",
     "char": "string",
     "varchar": "string",
+    "varbinary": "binary",
+    # Legacy SQL Server types. A Fabric Warehouse table cannot hold these, so
+    # they never appear in a real Fabric scan. They stay mapped only so a scan
+    # of a SQL Server test database (see README) produces a usable report.
+    "tinyint": "int",
     "nchar": "string",
     "nvarchar": "string",
-    "varbinary": "binary",
     "binary": "binary",
 }
 
